@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Merchant Admin</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+  body { font-family: -apple-system, Arial, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; color: #222; }
+  h1 { font-size: 20px; }
+  h2 { font-size: 16px; margin-top: 32px; }
+  label { display: block; margin-top: 10px; font-size: 13px; color: #555; }
+  input, select { width: 100%; padding: 8px; margin-top: 4px; box-sizing: border-box; font-size: 14px; }
+  button { margin-top: 14px; padding: 9px 16px; cursor: pointer; }
+  table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 14px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #ddd; }
+  #status { margin-top: 10px; font-size: 13px; }
+  .error { color: #b00020; }
+  .ok { color: #0a7d2c; }
+  #serviceSection { opacity: 0.4; pointer-events: none; }
+  #serviceSection.active { opacity: 1; pointer-events: auto; }
+  #schedulingSection { opacity: 0.4; pointer-events: none; }
+  #schedulingSection.active { opacity: 1; pointer-events: auto; }
+  .calendar-status { display: inline-block; margin-top: 10px; padding: 6px 10px; border-radius: 4px; font-size: 13px; }
+  .calendar-status.connected { background: #e6f6ea; color: #0a7d2c; }
+  .calendar-status.not-connected { background: #f3f3f3; color: #666; }
+  #connectCalendarBtn { text-decoration: none; display: inline-block; }
+  #usageBanner { display: none; margin-top: 14px; padding: 10px 12px; border-radius: 4px; font-size: 13px; }
+  #usageBanner.warning { display: block; background: #fff8e1; color: #8a6d00; border: 1px solid #f0dca0; }
+  #usageBanner.stopped { display: block; background: #fdecea; color: #b00020; border: 1px solid #f3b8b0; }
+
+  /* --- auth screen --- */
+  #authView { display: none; }
+  .authbox { border: 1px solid #ddd; border-radius: 8px; padding: 24px; margin-top: 24px; }
+  .authtabs { display: flex; gap: 8px; margin-bottom: 6px; }
+  .authtabs button { flex: 1; margin-top: 0; background: #f3f3f3; border: 1px solid #ddd; }
+  .authtabs button.active { background: #222; color: #fff; border-color: #222; }
+  #googleBtn {
+    width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px;
+    background: #fff; border: 1px solid #ccc; color: #222; font-weight: 600;
+  }
+  .divider { text-align: center; color: #999; font-size: 12px; margin: 18px 0; }
+  #appView { display: none; }
+  .topbar { display: flex; justify-content: space-between; align-items: center; }
+  .topbar span { font-size: 13px; color: #666; }
+  #logoutBtn { padding: 6px 12px; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<!-- ===================== LOGIN / SIGN UP ===================== -->
+<div id="authView">
+  <h1>Shop Login</h1>
+  <div class="authbox">
+    <div class="authtabs">
+      <button id="tabLogin" class="active">Log In</button>
+      <button id="tabSignup">Sign Up</button>
+    </div>
+    <label>Email
+      <input id="auth_email" type="email" placeholder="mike@example.com">
+    </label>
+    <label>Password
+      <input id="auth_password" type="password" placeholder="At least 8 characters">
+    </label>
+    <button id="authSubmitBtn" style="width:100%;">Log In</button>
+    <div class="divider">or</div>
+    <button id="googleBtn" type="button">Continue with Google</button>
+    <div id="authStatus"></div>
+  </div>
+</div>
+
+<!-- ===================== MAIN APP (after login) ===================== -->
+<div id="appView">
+  <div class="topbar">
+    <h1>Shop Setup</h1>
+    <div>
+      <span id="userEmailLabel"></span>
+      <button id="logoutBtn">Log out</button>
+    </div>
+  </div>
+
+  <div id="merchantSection">
+    <label>Business name
+      <input id="business_name" placeholder="Mike's Plumbing">
+    </label>
+    <label>Service city
+      <input id="service_city" placeholder="Newark, NJ">
+    </label>
+    <label>Timezone (used for booking hours and calendar times)
+      <select id="timezone">
+        <option value="America/New_York">Eastern (New York)</option>
+        <option value="America/Chicago">Central (Chicago)</option>
+        <option value="America/Denver">Mountain (Denver)</option>
+        <option value="America/Phoenix">Arizona — no DST (Phoenix)</option>
+        <option value="America/Los_Angeles">Pacific (Los Angeles)</option>
+        <option value="America/Anchorage">Alaska (Anchorage)</option>
+        <option value="Pacific/Honolulu">Hawaii (Honolulu)</option>
+      </select>
+    </label>
+    <label>Owner phone
+      <input id="owner_phone" placeholder="+15551234567">
+    </label>
+    <label>Emergency contact phone (shown to customers for urgent issues)
+      <input id="emergency_phone" placeholder="+15551234567">
+    </label>
+    <label>Reply style
+      <select id="reply_style">
+        <option value="professional">Steady &amp; Professional</option>
+        <option value="concise">Efficient &amp; Concise</option>
+        <option value="warm">Warm &amp; Helpful</option>
+      </select>
+    </label>
+    <button id="saveMerchantBtn">Save Shop Info</button>
+    <div id="status"></div>
+    <div id="usageBanner"></div>
+  </div>
+
+  <h2>Scheduling &amp; Calendar</h2>
+  <div id="schedulingSection">
+    <label>Scheduling mode
+      <select id="scheduling_mode">
+        <option value="lead_only">Lead only — I'll call customers back myself</option>
+        <option value="auto_schedule">Auto-schedule — let the AI book directly on my calendar</option>
+      </select>
+    </label>
+    <label>Minimum lead time before a booking (hours)
+      <input id="min_lead_hours" type="number" placeholder="12">
+    </label>
+    <button id="saveSchedulingBtn">Save Scheduling Settings</button>
+
+    <div>
+      <span id="calendarStatus" class="calendar-status not-connected">Google Calendar: not connected</span>
+    </div>
+    <a id="connectCalendarBtn" href="#">
+      <button type="button">Connect Google Calendar</button>
+    </a>
+    <div style="font-size:12px; color:#888; margin-top:6px;">
+      Required for Auto-schedule mode. You'll be sent to Google to approve access, then brought back here.
+    </div>
+  </div>
+
+  <h2>Services</h2>
+  <div id="serviceSection">
+    <label>Service name
+      <input id="service_name" placeholder="Leak Detection">
+    </label>
+    <label>Base price ($)
+      <input id="base_price" type="number" placeholder="80">
+    </label>
+    <label>Estimated duration (minutes)
+      <input id="estimated_duration_minutes" type="number" placeholder="60">
+    </label>
+    <label>Keywords (comma separated, used for quote matching)
+      <input id="keywords" placeholder="leak, dripping, water">
+    </label>
+    <button id="addServiceBtn">Add Service</button>
+
+    <table id="servicesTable">
+      <thead>
+        <tr><th>Service</th><th>Price</th><th>Duration</th><th></th></tr>
+      </thead>
+      <tbody id="servicesBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+// ---------------------------------------------------------------------------
+// FILL THESE IN — both are safe to expose in frontend code (they are NOT
+// secret keys). Find them in Supabase Dashboard → Settings → API.
+// ---------------------------------------------------------------------------
+const SUPABASE_URL = 'https://vgicwunuhykdxypwxqho.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable__usixehILA2nf4yjAmVcLg_HkGF19Z_';
+
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+let merchant = null; // the logged-in user's merchant row, once loaded
+
+function setStatus(msg, isError) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = isError ? 'error' : 'ok';
+}
+
+function setAuthStatus(msg, isError) {
+  const el = document.getElementById('authStatus');
+  el.textContent = msg;
+  el.className = isError ? 'error' : 'ok';
+}
+
+function showAuthView() {
+  document.getElementById('authView').style.display = 'block';
+  document.getElementById('appView').style.display = 'none';
+}
+
+function showAppView() {
+  document.getElementById('authView').style.display = 'none';
+  document.getElementById('appView').style.display = 'block';
+}
+
+// --- Auth tabs (Log In / Sign Up) ---
+let authMode = 'login';
+document.getElementById('tabLogin').addEventListener('click', () => {
+  authMode = 'login';
+  document.getElementById('tabLogin').classList.add('active');
+  document.getElementById('tabSignup').classList.remove('active');
+  document.getElementById('authSubmitBtn').textContent = 'Log In';
+});
+document.getElementById('tabSignup').addEventListener('click', () => {
+  authMode = 'signup';
+  document.getElementById('tabSignup').classList.add('active');
+  document.getElementById('tabLogin').classList.remove('active');
+  document.getElementById('authSubmitBtn').textContent = 'Sign Up';
+});
+
+document.getElementById('authSubmitBtn').addEventListener('click', async () => {
+  const email = document.getElementById('auth_email').value.trim();
+  const password = document.getElementById('auth_password').value;
+  if (!email || !password) {
+    setAuthStatus('Email and password are required.', true);
+    return;
+  }
+  setAuthStatus(authMode === 'login' ? 'Logging in…' : 'Creating your account…', false);
+  const fn = authMode === 'login'
+    ? supabaseClient.auth.signInWithPassword({ email, password })
+    : supabaseClient.auth.signUp({ email, password });
+  const { data, error } = await fn;
+  if (error) {
+    setAuthStatus(error.message, true);
+    return;
+  }
+  if (authMode === 'signup' && !data.session) {
+    setAuthStatus('Check your email to confirm your account, then log in.', false);
+    return;
+  }
+  setAuthStatus('', false);
+  await afterLogin();
+});
+
+document.getElementById('googleBtn').addEventListener('click', async () => {
+  await supabaseClient.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: window.location.href }
+  });
+});
+
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  await supabaseClient.auth.signOut();
+  merchant = null;
+  showAuthView();
+});
+
+// --- Runs once we have a valid Supabase session (password login, signup, or Google redirect) ---
+async function afterLogin() {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (!session) { showAuthView(); return; }
+
+  document.getElementById('userEmailLabel').textContent = session.user.email || '';
+  showAppView();
+  await loadMerchant();
+}
+
+async function authedFetch(url, options) {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  options = options || {};
+  options.headers = Object.assign({}, options.headers, {
+    'Authorization': 'Bearer ' + (session ? session.access_token : '')
+  });
+  return fetch(url, options);
+}
+
+function unlockServices() { document.getElementById('serviceSection').classList.add('active'); }
+function unlockScheduling() { document.getElementById('schedulingSection').classList.add('active'); }
+
+function updateCalendarConnectLink() {
+  const link = document.getElementById('connectCalendarBtn');
+  link.href = merchant ? `/oauth/google/connect?merchantId=${merchant.id}` : '#';
+}
+
+function renderCalendarStatus(connected) {
+  const el = document.getElementById('calendarStatus');
+  if (connected) {
+    el.textContent = 'Google Calendar: connected';
+    el.className = 'calendar-status connected';
+  } else {
+    el.textContent = 'Google Calendar: not connected';
+    el.className = 'calendar-status not-connected';
+  }
+}
+
+function renderUsageBanner(status) {
+  const el = document.getElementById('usageBanner');
+  if (!status) { el.className = ''; el.textContent = ''; return; }
+  if (status.hardStopped) {
+    el.className = 'stopped';
+    el.textContent = `AI replies are paused — you've used ${status.usedThisPeriod}/${status.planLimit} messages this period. Top up $9.90/100 messages to resume.`;
+  } else if (status.percentUsed >= 80) {
+    el.className = 'warning';
+    el.textContent = `Current usage: ${status.percentUsed}% of your plan (${status.usedThisPeriod}/${status.planLimit} messages). Need more credits? Top up $9.90/100 messages before AI replies pause.`;
+  } else {
+    el.className = ''; el.textContent = '';
+  }
+}
+
+async function loadQuota() {
+  try {
+    const res = await authedFetch('/api/merchants/me/quota');
+    if (!res.ok) return;
+    renderUsageBanner(await res.json());
+  } catch (err) { /* non-critical */ }
+}
+
+function fillForm(m) {
+  document.getElementById('business_name').value = m.business_name || '';
+  document.getElementById('service_city').value = m.service_city || '';
+  document.getElementById('timezone').value = m.timezone || 'America/New_York';
+  document.getElementById('owner_phone').value = m.owner_phone || '';
+  document.getElementById('emergency_phone').value = m.emergency_phone || '';
+  document.getElementById('reply_style').value = m.reply_style || 'professional';
+  document.getElementById('scheduling_mode').value = m.scheduling_mode || 'lead_only';
+  document.getElementById('min_lead_hours').value = m.min_lead_hours || 12;
+}
+
+async function loadMerchant() {
+  try {
+    const res = await authedFetch('/api/merchants/me');
+    if (res.status === 404) {
+      // Logged in, but hasn't filled out the shop form yet — that's fine,
+      // saveMerchant() below will create it on first save.
+      merchant = null;
+      return;
+    }
+    if (!res.ok) throw new Error('Failed to load your profile');
+    merchant = await res.json();
+    fillForm(merchant);
+    unlockServices();
+    unlockScheduling();
+    updateCalendarConnectLink();
+    renderCalendarStatus(merchant.google_calendar_connected);
+    loadServices();
+    loadQuota();
+  } catch (err) {
+    setStatus(err.message, true);
+  }
+}
+
+async function saveMerchant() {
+  const body = {
+    business_name: document.getElementById('business_name').value,
+    service_city: document.getElementById('service_city').value,
+    timezone: document.getElementById('timezone').value,
+    owner_phone: document.getElementById('owner_phone').value,
+    emergency_phone: document.getElementById('emergency_phone').value,
+    reply_style: document.getElementById('reply_style').value
+  };
+  if (!body.business_name) {
+    setStatus('Business name is required.', true);
+    return;
+  }
+  try {
+    const isNew = !merchant;
+    const res = await authedFetch(isNew ? '/api/merchants/me' : '/api/merchants/me', {
+      method: isNew ? 'POST' : 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Save failed');
+    merchant = data;
+    setStatus('Saved.', false);
+    unlockServices();
+    unlockScheduling();
+    updateCalendarConnectLink();
+    renderCalendarStatus(data.google_calendar_connected);
+    loadServices();
+    loadQuota();
+  } catch (err) {
+    setStatus(err.message, true);
+  }
+}
+
+async function saveScheduling() {
+  if (!merchant) { setStatus('Save shop info first.', true); return; }
+  const body = {
+    scheduling_mode: document.getElementById('scheduling_mode').value,
+    min_lead_hours: parseInt(document.getElementById('min_lead_hours').value) || 12
+  };
+  if (body.scheduling_mode === 'auto_schedule') {
+    const statusEl = document.getElementById('calendarStatus');
+    if (!statusEl.classList.contains('connected')) {
+      setStatus('Connect Google Calendar below before switching to Auto-schedule mode — otherwise the AI has no calendar to check.', true);
+      return;
+    }
+  }
+  try {
+    const res = await authedFetch('/api/merchants/me', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Save failed');
+    setStatus('Scheduling settings saved.', false);
+  } catch (err) {
+    setStatus(err.message, true);
+  }
+}
+
+async function addService() {
+  if (!merchant) { setStatus('Save shop info first.', true); return; }
+  const body = {
+    service_name: document.getElementById('service_name').value,
+    base_price: parseFloat(document.getElementById('base_price').value),
+    estimated_duration_minutes: parseInt(document.getElementById('estimated_duration_minutes').value) || null,
+    keywords: document.getElementById('keywords').value.split(',').map(k => k.trim()).filter(Boolean)
+  };
+  if (!body.service_name || isNaN(body.base_price)) {
+    setStatus('Service name and base price are required.', true);
+    return;
+  }
+  try {
+    const res = await authedFetch('/api/merchants/me/services', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Add failed');
+    document.getElementById('service_name').value = '';
+    document.getElementById('base_price').value = '';
+    document.getElementById('estimated_duration_minutes').value = '';
+    document.getElementById('keywords').value = '';
+    loadServices();
+  } catch (err) {
+    setStatus(err.message, true);
+  }
+}
+
+async function deleteService(id) {
+  try {
+    await authedFetch(`/api/services/me/${id}`, { method: 'DELETE' });
+    loadServices();
+  } catch (err) {
+    setStatus(err.message, true);
+  }
+}
+
+async function loadServices() {
+  try {
+    const res = await authedFetch('/api/merchants/me/services');
+    const services = await res.json();
+    const body = document.getElementById('servicesBody');
+    body.innerHTML = '';
+    services.forEach(s => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${s.service_name}</td><td>$${s.base_price}</td><td>${s.estimated_duration_minutes || '-'} min</td>
+        <td><button onclick="deleteService('${s.id}')">Delete</button></td>`;
+      body.appendChild(tr);
+    });
+  } catch (err) {
+    setStatus(err.message, true);
+  }
+}
+
+document.getElementById('saveMerchantBtn').addEventListener('click', saveMerchant);
+document.getElementById('saveSchedulingBtn').addEventListener('click', saveScheduling);
+document.getElementById('addServiceBtn').addEventListener('click', addService);
+
+// --- Boot: check if we already have a session (e.g. just got redirected back from Google) ---
+supabaseClient.auth.onAuthStateChange((event, session) => {
+  if (session) afterLogin();
+  else showAuthView();
+});
+(async () => {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  if (session) await afterLogin();
+  else showAuthView();
+})();
+</script>
+
+</body>
+</html>
